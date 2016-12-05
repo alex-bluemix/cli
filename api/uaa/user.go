@@ -31,8 +31,7 @@ type email struct {
 }
 
 type newUserResponse struct {
-	ID       string `json:"id"`
-	Username string `json:"userName"`
+	ID string `json:"id"`
 }
 
 // NewUser creates a new UAA user account with the provided password.
@@ -73,6 +72,7 @@ func (client *Client) NewUser(user string, password string) (User, error) {
 	response := Response{
 		Result: &userResponse,
 	}
+
 	err = client.connection.Make(request, &response)
 	if err != nil {
 		return User{}, err

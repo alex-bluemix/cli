@@ -6,7 +6,7 @@ import (
 	. "code.cloudfoundry.org/cli/api/uaa"
 	"code.cloudfoundry.org/cli/api/uaa/uaafakes"
 	. "github.com/onsi/ginkgo"
-	// . "github.com/onsi/gomega"
+	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/ghttp"
 )
 
@@ -20,21 +20,54 @@ var _ = Describe("User", func() {
 		client, fakeStore = NewTestUAAClientAndStore()
 	})
 
-	PDescribe("NewUser", func() {
-		BeforeEach(func() {
-			response := `{
-			}`
-			server.AppendHandlers(
-				CombineHandlers(
-					VerifyRequest(http.MethodPost, "/Users"),
-					VerifyHeaderKV("Accept", "application/json"),
-					VerifyHeaderKV("Content-Type", "application/json"),
-					VerifyBody([]byte("")),
-					RespondWith(http.StatusOK, response),
-				))
+	Describe("NewUser", func() {
+		Context("when no errors occur", func() {
+			BeforeEach(func() {
+				response := `{
+					"ID": "new-user-id"
+				}`
+				server.AppendHandlers(
+					CombineHandlers(
+						VerifyRequest(http.MethodPost, "/Users"),
+						VerifyHeaderKV("Content-Type", "application/json"),
+						VerifyBody([]byte(`{"userName":"new-user","password":"new-password","name":{"familyName":"new-user","givenName":"new-user"},"emails":[{"value":"new-user","primary":false}]}`)),
+						RespondWith(http.StatusOK, response),
+					))
+			})
+
+			It("creates a new user", func() {
+				user, err := client.NewUser("new-user", "new-password")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(user).To(Equal(User{
+					ID: "new-user-id",
+				}))
+
+				Expect(server.ReceivedRequests()).To(HaveLen(1))
+			})
 		})
 
-		It("refreshes the token", func() {
+		Context("when an error occurs", func() {
+			var response string
+
+			BeforeEach(func() {
+				response = `{
+					"error": "some-error",
+					"error_description": "some-description"
+				}`
+				server.AppendHandlers(
+					CombineHandlers(
+						VerifyRequest(http.MethodPost, "/Users"),
+						RespondWith(http.StatusNotFound, response),
+					))
+			})
+
+			It("returns the error", func() {
+				_, err := client.NewUser("new-user", "new-password")
+				Expect(err).To(MatchError(RawHTTPStatusError{
+					StatusCode:  http.StatusNotFound,
+					RawResponse: []byte(response),
+				}))
+			})
 		})
 	})
 })
