@@ -2,8 +2,9 @@ package shared
 
 import (
 	"code.cloudfoundry.org/cli/api/cloudcontroller/ccv2"
-	"code.cloudfoundry.org/cli/api/cloudcontroller/wrapper"
+	ccWrapper "code.cloudfoundry.org/cli/api/cloudcontroller/wrapper"
 	"code.cloudfoundry.org/cli/api/uaa"
+	uaaWrapper "code.cloudfoundry.org/cli/api/uaa/wrapper"
 	"code.cloudfoundry.org/cli/cf"
 	"code.cloudfoundry.org/cli/command"
 )
@@ -34,18 +35,24 @@ func NewClients(config command.Config, ui command.UI) (*ccv2.Client, *uaa.Client
 		URL:               ccClient.TokenEndpoint(),
 	})
 
+	uaaClient.WrapConnection(uaa.NewErrorWrapper())
+
 	verbose, location := config.Verbose()
 	if verbose {
-		logger := wrapper.NewRequestLogger(command.NewRequestLoggerTerminalDisplay(ui))
-		ccClient.WrapConnection(logger)
+		ccClient.WrapConnection(ccWrapper.NewRequestLogger(command.NewRequestLoggerTerminalDisplay(ui)))
+		uaaClient.WrapConnection(uaaWrapper.NewRequestLogger(command.NewRequestLoggerTerminalDisplay(ui)))
 	}
 	if location != nil {
-		logger := wrapper.NewRequestLogger(command.NewRequestLoggerFileWriter(ui, location))
-		ccClient.WrapConnection(logger)
+		ccClient.WrapConnection(ccWrapper.NewRequestLogger(command.NewRequestLoggerFileWriter(ui, location)))
+		uaaClient.WrapConnection(uaaWrapper.NewRequestLogger(command.NewRequestLoggerFileWriter(ui, location)))
 	}
 
-	ccClient.WrapConnection(wrapper.NewUAAAuthentication(uaaClient))
-	ccClient.WrapConnection(wrapper.NewRetryRequest(2))
+	ccClient.WrapConnection(ccWrapper.NewUAAAuthentication(uaaClient))
+	ccClient.WrapConnection(ccWrapper.NewRetryRequest(2))
+
+	uaaClient.WrapConnection(uaaWrapper.NewUAAAuthentication(uaaClient))
+	uaaClient.WrapConnection(uaaWrapper.NewRetryRequest(2))
+
 	return ccClient, uaaClient, err
 }
 

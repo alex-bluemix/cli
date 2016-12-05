@@ -1,32 +1,60 @@
 package uaa
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
 
-// UnverifiedServerError replaces x509.UnknownAuthorityError when the server
-// has SSL but the client is unable to verify it's certificate
-type UnverifiedServerError struct {
-	URL string
-}
-
-func (e UnverifiedServerError) Error() string {
-	return "x509: certificate signed by unknown authority"
-}
-
-// RequestError represents a connection level request error
-type RequestError struct {
-	Err error
-}
-
-func (e RequestError) Error() string {
-	return e.Err.Error()
-}
-
-// Error is an error returned by the UAA
-type Error struct {
+// UAAErrorResponse represents a generic UAA error response.
+type UAAErrorResponse struct {
 	Type        string `json:"error"`
 	Description string `json:"error_description"`
 }
 
-func (r Error) Error() string {
-	return fmt.Sprintf("Error Type: %s\nDescription: %s", r.Type, r.Description)
+func (e UAAErrorResponse) Error() string {
+	return fmt.Sprintf("Error Type: %s\nDescription: %s", e.Type, e.Description)
+}
+
+type errorWrapper struct {
+	connection Connection
+}
+
+func NewErrorWrapper() *errorWrapper {
+	return new(errorWrapper)
+}
+
+func (e *errorWrapper) Wrap(innerconnection Connection) Connection {
+	e.connection = innerconnection
+	return e
+}
+
+func (e *errorWrapper) Make(request *http.Request, passedResponse *Response) error {
+	err := e.connection.Make(request, passedResponse)
+
+	if rawHTTPStatusErr, ok := err.(RawHTTPStatusError); ok {
+		return convert(rawHTTPStatusErr)
+	}
+
+	return err
+}
+
+func convert(rawHTTPStatusErr RawHTTPStatusError) error {
+	// Try to unmarshal the raw http status error into a UAA error. If
+	// unmarshaling fails, return the raw error.
+	var uaaErrorResponse UAAErrorResponse
+	err := json.Unmarshal(rawHTTPStatusErr.RawResponse, &uaaErrorResponse)
+	if err != nil {
+		return rawHTTPStatusErr
+	}
+
+	switch rawHTTPStatusErr.StatusCode {
+	case http.StatusUnauthorized: // 401
+		if uaaErrorResponse.Type == "invalid_token" {
+			return InvalidAuthTokenError{Message: uaaErrorResponse.Description}
+		}
+		return uaaErrorResponse
+	default:
+		return uaaErrorResponse
+	}
 }
