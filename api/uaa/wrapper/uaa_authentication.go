@@ -1,7 +1,10 @@
 package wrapper
 
 import (
+	"bytes"
+	"io/ioutil"
 	"net/http"
+	"strings"
 
 	"code.cloudfoundry.org/cli/api/uaa"
 )
@@ -37,15 +40,36 @@ func (t *UAAAuthentication) Wrap(innerconnection uaa.Connection) uaa.Connection 
 // Make adds authentication headers to the passed in request and then calls the
 // wrapped connection's Make
 func (t *UAAAuthentication) Make(request *http.Request, passedResponse *uaa.Response) error {
+	// The authentication header is not added to the token refresh request.
+	if strings.Contains(request.URL.String(), "/oauth/token") && request.Method == http.MethodPost {
+		return t.connection.Make(request, passedResponse)
+	}
+
+	var err error
+	var rawRequestBody []byte
+
+	if request.Body != nil {
+		rawRequestBody, err = ioutil.ReadAll(request.Body)
+		defer request.Body.Close()
+		if err != nil {
+			return err
+		}
+
+		request.Body = ioutil.NopCloser(bytes.NewBuffer(rawRequestBody))
+	}
+
 	request.Header.Set("Authorization", t.client.AccessToken())
 
-	err := t.connection.Make(request, passedResponse)
+	err = t.connection.Make(request, passedResponse)
 	if _, ok := err.(uaa.InvalidAuthTokenError); ok {
 		err = t.client.RefreshToken()
 		if err != nil {
 			return err
 		}
 
+		if rawRequestBody != nil {
+			request.Body = ioutil.NopCloser(bytes.NewBuffer(rawRequestBody))
+		}
 		request.Header.Set("Authorization", t.client.AccessToken())
 		err = t.connection.Make(request, passedResponse)
 	}
